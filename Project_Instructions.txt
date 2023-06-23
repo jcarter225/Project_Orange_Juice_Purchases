@@ -1,0 +1,13 @@
+Project Two - Orange Juice Purchases 
+
+Overview
+
+The data contains 1070 purchases where the customer either purchased Citrus Hill or Minute Maid Orange Juice. A total of 18 variables are recorded in the dataset.
+
+The data frame is called OJ and can be found in the “ISLR” package in R. When the package is loaded, enter data(OJ)at the command prompt to import the data to your session. Enter ?OJ at the command prompt to see a brief description of each variable.
+
+While this data set only presumes that customers only have two options for orange juice, the methods here could equally be used in a situation where those that purchase orange juice are categorized as the orange juice of interest versus all others or purchase versus no purchase.
+
+You’re going to progressively build one report in parts for this project.Certain parts will be incorporated with the homework assignments so that you can get a start on it and receive some feedback as you work through the project. At each stage you’ll submit both an .Rmd file and a knitted Word Document. Detailed instructions for each stage are given in the sections below.
+
+Throughout this project you should consider yourself a data analyst who works for the “Grab n Go” convenience store chain.Ultimately your job is help the purchasing and marketing departments at “Grab n Go” learn to predict which orange juice preference each customer may have and what variables are most important for that prediction.
