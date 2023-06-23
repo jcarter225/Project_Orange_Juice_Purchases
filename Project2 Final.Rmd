@@ -1,0 +1,591 @@
+---
+title: "Project 2: Orange Juice Purchases"
+author: "Justin Carter"
+date: "3/9/2022"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction
+
+This document was commissioned by Grab n' Go in order to ascertain information vital to the marketing and sales of Minute Maid orange juice. 
+
+In the subsequent sections of this document, various analyses were conducted in order to construct a model that could accurately predict purchases of Minute Maid orange juice, as well as to find the most important factors that contribute to said purchasing decision.
+
+The Data Familiarization and Exploration section details a preliminary analysis of the variables contained in the data set, including the implementation of data preprocessing techniques in order to facilitate analyses in subsequent sections. The Purchasing section concerns the implementation and explanation of a logistic regression model that can be utilized to predict purchases of Minute Maid orange juice. Finally, in the Marketing section, a modified model was created and utilized in order to profile customers who purchase Minute Maid orange juice. 
+
+# Data Familiarization and Exploration
+
+
+```{r include=FALSE}
+library(ISLR)
+library(tidyverse)
+library(caret) 
+library(GGally)
+library(rcompanion)
+library(InformationValue) 
+
+
+#basic dataset exploration
+data(OJ)
+#?OJ
+head(OJ)
+oj <- OJ
+glimpse(oj)
+
+
+```
+
+
+```{r include=FALSE}
+#1: check for NA values
+oj <- na.omit(oj)
+
+```
+## Checking for Missing Values
+
+After checking for missing values, there were no missing values that were observed within the dataset.
+
+## Understanding the Response Variable
+
+The response variable Purchase is categorical in nature (and is appropriately considered by R to be a factor instead of a character value). The labels for the variable are either CH (for Citrus Hill) or MM (for Minute Maid). This variable denotes which kind of orange juice was purchased. Since R allocates the values of 0 and 1 alphabetically, R will consider Cirtis Hill to be 0 and Minute Maid to be 1.
+
+## Initial Analysis of the Response Variable
+
+About 39% of those surveyed bought Minute Maid orange juice, while 61% of people surveyed chose to purchase Citrus Hill orange juice. In total, 417 people bought Minute Maid orange juice and 653 people bought Citrus Hill.
+
+```{r echo=FALSE}
+counts_df <- oj %>%
+  group_by(Purchase) %>%
+  summarize(Count = n(), proportion = Count/1070)
+
+#create bar chart showing difference in counts
+
+counts_bar <- counts_df %>%
+  ggplot(aes(x=Purchase, y=Count)) +
+  geom_bar(aes(fill=Purchase), stat="identity") +
+  labs(title = "Number of Purchases by Brand",
+       x = "Brand") +
+    scale_x_discrete(labels = c("Citrus Hill", "Minute Maid")) +
+  theme_minimal() +
+  theme(legend.position="none")
+counts_bar
+
+```
+
+## Variable Selection
+
+```{r include=FALSE}
+
+oj <- oj %>%
+  dplyr::select(-c(Store7, STORE, PriceDiff))
+
+#explore correlations of:
+#week of purchase, PriceCH, PriceMM, DisCH, DiscMM, LoyalCH, SalePriceMM, SalePriceCH, ListPriceDiff, PctDiscMM, PctDiscCH
+
+quantitatives <- oj %>%
+  dplyr::select(WeekofPurchase, PriceCH, PriceMM, DiscCH, DiscMM, LoyalCH, SalePriceMM, SalePriceCH, ListPriceDiff, PctDiscMM, PctDiscCH)
+
+cor(quantitatives)
+
+
+#new, cleaned dataset to work from:
+oj_no_corr <- oj %>%
+  dplyr::select(-c(WeekofPurchase, DiscCH, DiscMM, PctDiscCH, PctDiscMM))
+```
+
+After carefully looking through the dataset, it became clear that there were several redundancies in terms of variables. Immediately, it became clear that STORE, Store7, and PriceDiff contained the same information that was stored in other variables. Thus, those variables were removed.
+
+Then, the remaining quantitative variables (WeekofPurchase, PriceCH, DiscCH, SalePriceCH, SalePriceMM, DiscMM, and PctDiscMM, and PctDiscCH) were checked for multicolinarity. Indeed, several correlations were found between these predictor variables. Variables with correlations of -.7 or higher, and .7 or lower with other variables were excluded from the dataset. Specifically, WeekofPurchase, DiscCH, DiscMM, PctDiscCH, and PctDiscMM were excluded from the dataset, as these variables had large correlations with other variables and offer less explanatory power than the variables they were correlated with. 
+
+
+## The Types of Variables Remaining After Variable Selection
+
+After removing redundancies and large correlates, the remaining categorical variables in the dataset were: 
+
+* Purchase 
+* StoreID 
+* SpecialCH 
+* SpecialMM 
+
+The remaining quantitative variables were: 
+
+* PriceCH
+* PriceMM
+* LoyalCH
+* SalePriceMM
+* SalePriceCH
+* ListPriceDiff
+
+
+```{r include=FALSE}
+glimpse(oj_no_corr)
+```
+
+## Analyzing The Remaining Quantitative Variables
+
+Of the quantitative variables, PriceMM, SalePriceMM, and SalePriceCH have severe left skews. In addition, the distribution of LoyalCH is irregularly shaped, with a high number of observations toward higher values. 
+
+PriceMM, and ListPriceDiff both appear to have outliers.
+
+Various transformation techniques will be applied to PriceMM, SalePriceMM, and SalePriceCH, including logarithmic transformations and Tukey's Ladder of Powers, in order to make the distributions of these variables more uniform. The method that will applied to each variable will depend on which method is most successful at giving the variable in question an approximately normal distribution.
+
+```{r include=FALSE}
+#log and tukey
+
+hist(oj_no_corr$PriceCH)
+boxplot(oj_no_corr$PriceCH)
+
+hist(oj_no_corr$PriceMM) #slight left skew
+boxplot(oj_no_corr$PriceMM) # low outlier; has many high values
+
+hist(oj_no_corr$LoyalCH) #irregularly shaped
+boxplot(oj_no_corr$LoyalCH)
+
+hist(oj_no_corr$SalePriceMM) #left skew
+boxplot(oj_no_corr$SalePriceMM) # many high values
+
+hist(oj_no_corr$SalePriceCH) #left skew
+boxplot(oj_no_corr$SalePriceCH)
+
+hist(oj_no_corr$ListPriceDiff) #has major low outliers
+boxplot(oj_no_corr$ListPriceDiff)
+```
+
+## Analyzing the Remaining Categorical Variables
+
+Of the categorical variables Purchase, StoreID, SpecialCH, SpecialMM, the variables that present significantly more observations in various classes are SpecialCH and SpecialMM. These variables both have many more cases in which a purchase was not made when a special on the product was active than when a special was indeed active. Analysis of SpecialMM shows that 897 purchases of Minute Maid were made when there was no special active, and 173 purchases made when there was a special active. Analysis of SpecialCH reveals that 912 purchases of Citrus Hill were made when a special was not active, and 158 purchases were made when a special was active. These variables may ultimately need to be excluded from the analysis if an analysis that includes them shows low accuracy.
+
+```{r eval=FALSE, include=FALSE}
+oj_no_corr %>%
+  group_by(Purchase) %>%
+  summarize(count = n())
+
+oj_no_corr %>%
+  group_by(StoreID) %>%
+  summarize(count = n())
+
+oj_no_corr %>%
+  group_by(SpecialCH) %>%
+  summarize(count = n())
+
+oj_no_corr %>%
+  group_by(SpecialMM) %>%
+  summarize(count = n())
+```
+
+```{r include=FALSE}
+# try Tukey Ladder of Powers and Logarithmic transformations for: PriceMM, LoyalCH, SalePriceMM, SalePriceCH
+
+#transform skewed quantitative variables
+oj_no_corr <- oj_no_corr %>%
+  
+    mutate(PriceMM.T = transformTukey(oj_no_corr$PriceMM, plotit=F, quiet=T),
+           PriceMM.L = log(oj_no_corr$PriceMM),
+           
+           LoyalCH.T = transformTukey(oj_no_corr$LoyalCH, plotit=F, quiet=T),
+           LoyalCH.L = log(oj_no_corr$LoyalCH),
+           
+           SalePriceMM.T = transformTukey(oj_no_corr$SalePriceMM, plotit=F, quiet=T),
+           
+           SalePriceMM.L = log(oj_no_corr$SalePriceMM),
+           
+           SalePriceCH.T = transformTukey(oj_no_corr$SalePriceCH, plotit=F, quiet=T),
+           SalePriceCH.L = log(oj_no_corr$SalePriceCH))
+           
+
+
+#compare distributions of tranformed variables;
+
+#PriceMM
+hist(oj_no_corr$PriceMM)
+hist(oj_no_corr$PriceMM.T) # use tukey
+hist(oj_no_corr$PriceMM.L)
+
+
+#LoyalCH
+hist(oj_no_corr$LoyalCH) # use regular
+hist(oj_no_corr$LoyalCH.T)
+hist(oj_no_corr$LoyalCH.L)
+
+
+#SalePriceMM
+hist(oj_no_corr$SalePriceMM)
+hist(oj_no_corr$SalePriceMM.T) # Use Tukey
+hist(oj_no_corr$SalePriceMM.L)
+
+
+#SalePriceCH
+hist(oj_no_corr$SalePriceCH) 
+hist(oj_no_corr$SalePriceCH.T) # Use Tukey
+hist(oj_no_corr$SalePriceCH.L) 
+
+
+#use tukey transformations of PriceMM, SalePriceMM, and SalePriceCH, and keep regular version of LoyalCH:
+
+oj_ready <- oj_no_corr %>%
+  dplyr::select(-c(PriceMM, PriceMM.L,
+            
+            LoyalCH.T, LoyalCH.L,
+            
+            SalePriceMM, SalePriceMM.L,
+            
+            SalePriceCH, SalePriceCH.L))
+
+#finally, tranform: StoreID, SpecialCH, SpecialMM into factors:
+
+oj_ready <- oj_ready %>%
+  mutate(StoreID = as.factor(StoreID),
+         SpecialCH = as.factor(SpecialCH),
+         SpecialMM = as.factor(SpecialMM))
+
+glimpse(oj_ready)
+```
+# Purchasing
+
+The focus of this section concerns the prediction of the brand of orange juice purchased by customers.
+
+## Data Partitioning
+
+The variables included in the cleaned data set were checked for variable type and transformed into the correct typing. The following variables' types were changed to factors:
+
+* StoreID (ID of the store in which the purchase was made)
+
+* SpecialCH (whether or not a purchase of Citrus Hill was on special)
+
+* SpecialMM (whether or not a purchase of Minute Maid was on special)
+
+The following variables were transformed using Tukey's Ladder of Powers in order to approximate a normal distribution:
+
+* PriceMM 
+
+* SalePriceMM 
+
+* SalePriceCH
+
+The resulting variables created were:
+
+* PriceMM.T
+
+* SalePriceMM.T
+
+* SalePriceCH.T
+
+The original forms of these variables were discarded from the data set.
+
+Afterward, the data was randomly partitioned into a training set and a validation (test) set. 60% of the data was included in the training set, and 40% of the data was included in the validation set.
+
+```{r include=FALSE}
+#for replicability
+set.seed(1)
+
+#partition dataset into training and test sets:
+train.index <- createDataPartition(oj_ready$Purchase, p = .6, list = FALSE, times = 1) 
+
+#separate data into proper training and test sets:
+train.df <- oj_ready[train.index, ]
+test.df <- oj_ready[-train.index, ]
+
+```
+
+## Logistic Regression Model: Training Set Statistics
+
+The data in the training set was used to fit a Logistic Regression model to predict whether a purchase of orange juice was of the brand Citrus Hill or Minute Maid. Then, the accuracy of the model on the training data was assessed with a cutoff value of 0.5. Predictions of < 0.5 were determined to be Citrus Hill, and predictions of > 0.5 were determined to be Minute Maid. As can be seen from the output below, the accuracy of the Logistic Regression model on the training data was about .85, meaning that 85% of the model's predictions accurately predicted whether the purchase made was of Citrus Hill orange juice or Minute Maid orange juice.
+
+```{r echo=FALSE}
+#due to quantitative predictors being on vastly different scales, must be normalized:
+
+norm.values <- preProcess(train.df, method = c("center", "scale"))
+
+#get new training df w/ normalized values:
+train.norm.df <- predict(norm.values, train.df)
+
+#make transformed response variable with values 0 or 1; 1 being a purchase of MinuteMaid:
+
+train.norm.df$Purchase.I<-ifelse(train.df$Purchase== "MM", 1,0)
+
+#perform logistic regression on our training dataset; using all predictor variables, and leaving out untranformed Purchase variable
+
+model1 <- glm(Purchase.I ~ . -Purchase, data = train.norm.df, family = "binomial")
+
+#predict outcomes for Purchase.I
+pred1 <- predict(model1, newdata = train.norm.df, type="response")
+
+#get confusion matrix with cutoff of 0.5 for training set performance:
+
+fifty_cut_preds <- ifelse(pred1 > 0.5, 1,0)
+
+confusionMatrix.fifty <- caret::confusionMatrix(as.factor(fifty_cut_preds), as.factor(train.norm.df$Purchase.I), positive = "1")
+
+confusionMatrix.fifty
+
+```
+
+## Test Set Prediction Optimization and Statistics
+
+The Logistic Regression model (called model1) that was fit in the training set was then applied to the validation set. An optimal cutoff value was found in order to minimize misclassification error on the test set. Then, the accuracy of the model was calculated utilizing a confusion matrix. 
+
+The results of this analysis can be seen in the output below. The model demonstrated an accuracy of about 83% in predicting whether a purchase was of the Citrus Hill or Minute Maid brand of orange juice. The small difference between the accuracies of the model in predicting values of the purchases in the training and validation sets suggests that there is little concern that the model is over-fitted. That is to say, this model performed about as well on new data as it did on the data used to train it, and should perform very well against completely new data.
+
+```{r echo=FALSE}
+#normalize the variables in the test set using the means and standard deviations of the variables in the training set
+test.norm.df <- predict(norm.values, test.df)
+
+#make new Purchase.I variable b/c setting values of Minute Maid Purchaes to 1
+test.norm.df$Purchase.I<-ifelse(test.df$Purchase== "MM", 1,0)
+
+#predict outcomes for Purchase.I in the testset
+pred2 <- predict(model1, newdata = test.norm.df, type="response")
+
+#get optimal cutoff to minimize misclassification error:
+opt.cut <- optimalCutoff(actuals=test.norm.df$Purchase.I, predictedScores=pred2, optimiseFor="misclasserror", returnDiagnostics=TRUE)
+
+optimal_preds_test<- ifelse(pred2 > opt.cut$optimalCutoff, 1,0)
+
+#Optimal cutoff value is 0.360 for the test set.
+
+confusionMatrix.opt <- caret::confusionMatrix(as.factor(optimal_preds_test), as.factor(test.norm.df$Purchase.I), positive = "1")
+
+confusionMatrix.opt
+
+#overall model accuracy is 83%
+```
+## Model Accuracy Compared to Naive Model
+```{r echo=FALSE}
+#get prevalence of Minute Maid Purchases in test set
+test.df %>%
+  group_by(Purchase) %>%
+  summarize(count = n(),
+            percentage = count/427)
+```
+Given that purchases of Minute Maid orange juice comprised only about 39% of the validation set (as can be seen in the output above), our model's accuracy of 83% performs much better than a naive model given the same data.
+
+## Sensitivity and Specificity of the model on the Validation Set
+
+The Sensitivity of the model is about 86%, meaning that if the actual purchase was of Minute Maid orange juice, there was an 86% chance that the model would predict the purchase to be so.
+
+The Specificity of our Logistic Regression model is about 82%, meaning that if the actual purchase was of Citrus Hill orange juice, there was an 82% chance that the model would predict the purchase to be so. 
+
+
+## Model ROC Curve and AUC for the Validation Set
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(pROC)
+
+#create ROC object to plot
+oj.roc <- roc(response=test.norm.df$Purchase.I, predictor = pred2)
+
+#create ROC plot
+ggroc(oj.roc, color = "darkblue") + ggtitle(paste0('ROC Curve ', '(AUC = ', round(oj.roc$auc,3), ')')) +
+  geom_segment(aes(x=1, xend=0, y= 0, yend=1), color="grey", linetype="dashed") +theme_minimal()
+
+```
+
+After plotting the ROC Curve of our classification model and then calculating the AUC (as can be seen above), it appears that our model indeed has an excellent balance of predicting purchases of Minute Maid when the actual purchases were of that brand, and predicting purchases of Citrus Hill orange juice when the purchases were actually of that brand. The AUC value of about 0.889 indicates that our Logistic Regression model has strong predictive power when tested against our validation set.
+
+## Affect of Balancing the Data using ROSE on Accuracy, Sensitivity, and AUC
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(ROSE)
+
+#Balance Response Variable Classes in data set with ROSE
+set.seed(1)
+oj_ready.rose <- ROSE(Purchase ~.,data=oj_ready)$data
+
+oj_ready.rose
+table(oj_ready.rose$Purchase)
+
+#Use new data set to train and test different model:
+
+#for replicability
+set.seed(1)
+
+#partition dataset into training and test sets:
+train.index.rose <- createDataPartition(oj_ready.rose$Purchase, p = .6, list = FALSE, times = 1) 
+
+#separate data into proper training and test sets:
+train.df.rose <- oj_ready.rose[train.index.rose, ]
+test.df.rose <- oj_ready[-train.index.rose, ]
+
+#=======Train model on rose training set===
+
+norm.values.rose <- preProcess(train.df.rose, method = c("center", "scale"))
+
+#get new training df w/ normalized values:
+train.norm.df.rose <- predict(norm.values.rose, train.df.rose)
+
+#make transformed response variable with values 0 or 1; 1 being a purchase of MinuteMaid:
+
+train.norm.df.rose$Purchase.I<-ifelse(train.df.rose$Purchase== "MM", 1,0)
+
+#perform logistic regression on our training dataset; using all predictor variables, and leaving out untranformed Purchase variable
+
+model1.rose <- glm(Purchase.I ~ . -Purchase, data = train.norm.df.rose, family = "binomial")
+
+#==============Test Model against rose===== =========validation set==================
+
+#normalize the variables in the test set using the means and standard deviations of the variables in the training set
+test.norm.df.rose <- predict(norm.values.rose, test.df.rose)
+
+#make new Purchase.I variable b/c setting values of Minute Maid Purchaes to 1
+test.norm.df.rose$Purchase.I<-ifelse(test.df.rose$Purchase== "MM", 1,0)
+
+#predict outcomes for Purchase.I in the testset
+pred2.rose <- predict(model1.rose, newdata = test.norm.df.rose, type="response")
+
+#get optimal cutoff to minimize misclassification error:
+opt.cut.rose <- optimalCutoff(actuals=test.norm.df.rose$Purchase.I, predictedScores=pred2.rose, optimiseFor="misclasserror", returnDiagnostics=TRUE)
+
+optimal_preds_test.rose<- ifelse(pred2.rose > opt.cut.rose$optimalCutoff, 1,0)
+
+#Optimal cutoff value i for the test set.
+
+confusionMatrix.opt.rose <- caret::confusionMatrix(as.factor(optimal_preds_test.rose), as.factor(test.norm.df.rose$Purchase.I), positive = "1")
+
+confusionMatrix.opt.rose
+
+#==ROC Curve and AUC for ROSE-balanced model=
+
+#Nicer ROC with AUC:
+ROC_chart.rose<- InformationValue::plotROC(actuals = test.norm.df.rose$Purchase.I, predictedScores = pred2.rose)
+
+ROC_chart.rose
+
+```
+After balancing the data set such that there were roughly an equal amount of cases of Citrus Hill purchases and Minute Maid purchases with the ROSE function, another analysis was conducted in order to determine if this transformation had positive effects on predictive performance. The values for accuracy, sensitivity, specificity, and AUC were virtually-identical to the original model. Thus, the original Logistic Regression model was kept (model1).
+
+# Marketing
+
+The focus of this section concerns the explanatory modeling (profiling) of customers who purchase Minute Maid orange juice. 
+
+
+## Constructing the Model 
+
+```{r include=FALSE}
+#use oj_ready since doing this on the entire data set.
+
+library(glmnet)
+
+#find the best LASSO penalized logistic regression model:
+
+preds_lasso <- model.matrix(Purchase~., oj_ready)[,-1] #get rid of column of all 1's; rest of matrix is needed
+response <- oj_ready$Purchase
+
+#find the best lambda using cross-validation
+set.seed(1) # for repeatibility
+cv.lasso <- cv.glmnet(x=preds_lasso, y=response, alpha = 1, family = "binomial")
+
+#fit lasso model (with LASSO's, alpha always equals 1)
+oj.lasso <- glmnet(x=preds_lasso, y=response, alpha=1, family="binomial", lambda = cv.lasso$lambda.min) # use best lambda in LASSO model
+
+#get coefficients for best lasso model:
+coef(oj.lasso)
+
+# make model without PriceCH and PriceMM.T, as these variables were entirely reduced to a coefficient of 0 by the LASSO Logistic Regression.
+
+#make new logistic regression model based on the outcome of the LASSO model above:
+
+oj.lasso.glm<- glm(Purchase~ . - PriceCH - PriceMM.T -StoreID, data=oj_ready, family="binomial") #got rid of variables deemed unimportant by the lasso model
+
+summary(oj.lasso.glm)
+
+```
+A logistic regression model to predict purchase of orange juice brands (utilizing the entire data set) was constructed through the following steps. The first step was to remove the variables of PriceCH and PriceMM (the prices of the brands). This was done because both of those variables were reduced to zero by the initial LASSO logistic regression model that was performed. Since there were individual classes of StoreID that were reduced to zero during the LASSO regression, StoreID was removed from the model as well. This was also done due to the large number of categories housed within the StoreID variable, which inherently lessened explanatory power. The exclusion of this variable did not negatively affect the logistic regression model's AIC value significantly. 
+
+## McFadden Test
+```{r include=FALSE}
+library(DescTools)
+
+#McFadden
+PseudoR2(oj.lasso.glm, which="McFadden")
+
+```
+The McFadden pseudo-$R^{2}$ statistic was calculated for this model, yielding a value of about 0.41. This metric measures the "goodness of fit" of the model. Since a value of 0.2 or higher can be considered a good model fit, our value of 0.41 indicates that our model fits the data quite well. 
+
+## Model Summary
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#MUST copy this output from HTML output and then paste to final word doc:
+
+require(sjPlot)
+
+#make nice table for model output:
+
+tab_model(oj.lasso.glm, show.aic=T, show.est=T, digits=3)
+```
+
+Above, a summary of the model can be seen. Odds Ratios were shown instead of the coefficients of variables, as this metric tends to be more immediately useful for explanation. Evidently, not all variables contained within the model are statistically significant when predicting customer purchases. SpecialCH and SpecialMM (whether or not Citrus Hill or Minute Maid were on special), and ListPriceDiff (the difference in listed price between the brands) were statistically insignificant in predicting purchase. SalePriceMM.T and SalePriceCH.T (the Tukey Ladder of Powers transformation of the sale price of Minute Maid and Citrus Hill, respectively) and LoyaltyCH (brand loyalty to Citrus Hill) were all found to be statistically-significant in predicting purchase. 
+
+## 95% Confidence Interval 
+
+```{r include=FALSE}
+#95% confidence interval for all coefficients
+exp(confint(oj.lasso.glm, level = 0.95))
+```
+After conducting a 95% confidence interval of the odds ratios for the predictor variables in the model, it was determined that the following variables did not have significant relationships with the purchase variable:
+
+* SpecialCH (whether or not Citrus Hill was on special)
+
+* SpecialMM (whether or not Minute Maid was on special)
+
+* ListPriceDiff (the price difference between Citrus Hill and Minute Maid)
+
+This was determined to be the case as their 95%  confidence intervals included the value of 1.
+
+The other variables in the model (brand loyalty to Citrus Hill or Minute Maid, the transformed value of the sale price of Minute Maid, and the transformed sale price of Citrus Hill) were found to have significant relationships with the purchase of Minute Maid lemonade.
+
+## Quantitative Predicted Probabilities for Purchasing Minute Maid 
+```{r include=FALSE}
+#construct plots of predicted probablities of all quantitative variables in the model:
+
+list_of_graphs<-plot_model(oj.lasso.glm, type="pred")
+
+#show charts for the quantitative variables one by one
+
+list_of_graphs[c(5,6,8,9)]
+#LoyalCH, ListPriceDiff, SalePriceMM.T, SalePriceCH.T
+```
+
+For further analysis, the quantitative variables utilized in order to construct the model were plotted. Although these plots will not be included in this document, general trends found in these plots will be discussed.
+
+As expected, as the value of customer loyalty to Citrus Hill orange juice increased, the probability that the customer would purchase Minute Maid orange juice decreased. In addition, in general, as the list price difference between Minute Maid and Citrus Hill increased, the less likely people were to purchase Minute Maid orange juice. However, the margin of error was quite high for this trend, and thus this trend should be viewed with some skepticism. As the transformed sale price of Minute Maid orange juice increased, the likelihood of the purchased brand being Minute Maid decreased. Finally, as the transformed sale price of Citrus Hill increased, the more likely a purchase was to be of Minute Maid orange juice.
+
+## Categorical Predicted Probabilities for Purchasing Minute Maid
+
+The two categorical variables utilized in the model were SpecialCH and SpecialMM. These variables signified whether or not Citrus Hill or Minute Maid were on special when a purchase was made. 
+
+```{r echo=FALSE}
+ggplot(oj_ready, aes(x=SpecialCH, fill=Purchase)) +
+  geom_bar(position=position_dodge2(preserve="total", padding=0.05), color="black") + #black boarders and padding for bars 
+  scale_fill_manual(values=c("chartreuse3", "steelblue1")) +
+  labs(x="Citrus Hill on Special", title="Orange Juice Purchases") + theme_classic() +
+  geom_text(stat='count', aes(label=..count..), vjust=-0.2, position=position_dodge(width=1))
+```
+
+As can be seen above, most purchases were made when Citrus Hill was not on special (category 0). Despite this, Citrus Hill outsold Minute Maid orange juice in this grouping. However, for those purchases that were made when Citrus Hill was on sale (category 1), customers purchased Citrus Hill over Minute Maid by a large margin.
+
+```{r echo=FALSE}
+ggplot(oj_ready, aes(x=SpecialMM, fill=Purchase)) +
+  geom_bar(position=position_dodge2(preserve="total", padding=0.05), color="black") + #black boarders and padding for bars 
+  scale_fill_manual(values=c("chartreuse3", "steelblue1")) +
+  labs(x="Minute Maid on Special", title="Orange Juice Purchases") + theme_classic() +
+  geom_text(stat='count', aes(label=..count..), vjust=-0.2, position=position_dodge(width=1))
+```
+
+Moving to the other categorical variable, SpecialMM, we see again that the majority of purchases made were at times when Minute Maid orange juice was not on special. We also see that Citrus Hill outsold Minute Maid in this condition (condition 0). However, when Minute Maid orange juice was on special, it reversed this trend and outsold Citrus Hill.
+
+## Analysis-Based Suggestions
+
+Considering the information presented previously, it is clear that there are important factors that can be used to predict the purchase of Minute Maid orange juice.
+
+Primarily, the sale prices of Minute Maid and Citrus Hill orange juices are highly significant predictors of which brand is purchased. The higher the sale price of Citrus Hill, the more likely the purchase is of Minute Maid. The lower the price of Minute Maid, the more likely the purchase is of that brand. 
+
+Interestingly, whether or not either brand was on sale was not a statistically significant factor in the analysis, despite seeming to be significant in purchase counts (see the previous section). This suggests that customers do not seem to care about whether a particular brand is on special. Rather, it appears that customers simply take the sale price of the brands into consideration when making a purchasing decision. In addition, brand loyalty was statistically significant in predicting purchases. 
+
+
+All of these findings suggest that in order to increase sales of Minute Maid orange juice, efforts to increase brand loyalty should be made, and the sale price of Citrus Hill should constantly be monitored in order to ensure that the sale price of Minute Maid orange juice is consistently below that price.
+
+# Summary and Conclusions
+
+In the Purchasing and Marketing sections, several conclusions were drawn concerning the most important factors involved with the decision to purchase Minute Maid orange juice. Initially, a logistic regression model was utilized to predict purchases of Minute Maid. This model was determined to have an accuracy of 83% in making these predictions. This logistic regression model was then modified via dropping unimportant variables from the analysis. The two most important factors in the decision to purchase Minute Maid were determined to be the sale price of Minute Maid and Citrus Hill, as well brand loyalty. Given these findings, it is recommended to consistently price Minute Maid below the price of Citrus Hill while both are on sale, and to invest in efforts shown to increase customer brand loyalty for Minute Maid. Given that these two factors were the most important in the decision to purchase Minute Maid, there is little doubt that investment in these areas will yield increased sales of Minute Maid orange juice. 
